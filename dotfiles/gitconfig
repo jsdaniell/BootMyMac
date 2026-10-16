@@ -1,0 +1,8 @@
+# Base ~/.gitconfig — managed by BootMyMac.
+# [user] and [credential] are written by the script (git config --global).
+[alias]
+	commit-all = "!f() { git add -A && git commit -m \"$1\"; }; f"
+[http]
+	postBuffer = 157286400
+[url "https://github.com/"]
+	insteadOf = git@github.com:

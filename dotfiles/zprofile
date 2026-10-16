@@ -1,0 +1,7 @@
+# ~/.zprofile — managed by BootMyMac
+[ -x /opt/homebrew/bin/brew ] && eval "$(/opt/homebrew/bin/brew shellenv)"
+[ -x /usr/local/bin/brew ] && [ ! -x /opt/homebrew/bin/brew ] && eval "$(/usr/local/bin/brew shellenv)"
+
+# JetBrains Toolbox / VS Code command-line launchers
+[ -d "$HOME/Library/Application Support/JetBrains/Toolbox/scripts" ] && export PATH="$PATH:$HOME/Library/Application Support/JetBrains/Toolbox/scripts"
+[ -d "/Applications/Visual Studio Code.app/Contents/Resources/app/bin" ] && export PATH="$PATH:/Applications/Visual Studio Code.app/Contents/Resources/app/bin"

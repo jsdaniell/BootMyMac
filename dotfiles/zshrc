@@ -1,0 +1,146 @@
+# ~/.zshrc — managed by BootMyMac (https://github.com/jsdaniell/BootMyMac)
+
+export PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH
+
+# ── Oh My Zsh ────────────────────────────────────────────────────────────────
+export ZSH="$HOME/.oh-my-zsh"
+ZSH_THEME="robbyrussell"
+plugins=(git zsh-autosuggestions zsh-syntax-highlighting fast-syntax-highlighting)
+source $ZSH/oh-my-zsh.sh
+
+# ── Java (JDK 17, used by Android / Gradle) ──────────────────────────────────
+if JAVA_17=$(/usr/libexec/java_home -v 17 2>/dev/null); then
+  export JAVA_HOME="$JAVA_17"
+fi
+unset JAVA_17
+
+# ── Node (nvm) ───────────────────────────────────────────────────────────────
+export NVM_DIR="$([ -z "${XDG_CONFIG_HOME-}" ] && printf %s "${HOME}/.nvm" || printf %s "${XDG_CONFIG_HOME}/nvm")"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+
+# ── Go ───────────────────────────────────────────────────────────────────────
+if command -v go >/dev/null 2>&1; then
+  export PATH="$PATH:$(go env GOPATH)/bin"
+fi
+
+# ── Android SDK ──────────────────────────────────────────────────────────────
+export ANDROID_HOME=$HOME/Library/Android/sdk
+export PATH=$PATH:$ANDROID_HOME/emulator
+export PATH=$PATH:$ANDROID_HOME/platform-tools
+export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
+
+# ── Optional SDKs (only loaded when installed) ───────────────────────────────
+[ -d "$HOME/.dotnet/tools" ] && export PATH="$PATH:$HOME/.dotnet/tools"
+[ -d "$HOME/SDKs/flutter/bin" ] && export PATH="$HOME/SDKs/flutter/bin:$PATH"
+[ -f "$HOME/google-cloud-sdk/path.zsh.inc" ] && . "$HOME/google-cloud-sdk/path.zsh.inc"
+[ -f "$HOME/google-cloud-sdk/completion.zsh.inc" ] && . "$HOME/google-cloud-sdk/completion.zsh.inc"
+[ -d "$HOME/.rvm/bin" ] && export PATH="$PATH:$HOME/.rvm/bin"
+
+# ── Aliases ──────────────────────────────────────────────────────────────────
+alias python="python3"
+alias offsleep="sudo pmset -a disablesleep 1 && sudo pmset -a sleep 0"
+alias onsleep="sudo pmset -a disablesleep 0 && sudo pmset -a sleep 1"
+# Rename worktrees whose branch was merged to merged_<name> (runs hourly anyway)
+alias wtsweep="$HOME/.claude/hooks/worktree-sweep-merged.sh"
+
+# ── killp: kill processes on common development ports ────────────────────────
+killp() {
+  local ports=(3000 3001 8000 8080 8081 9000 9001 9002 9003 9004 9090 9091 9092 9093 54516)
+  local use_sudo=""
+  local force_mode=""
+
+  # Parse flags
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -s|--sudo) use_sudo="sudo"; shift ;;
+      -f|--force) force_mode="1"; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  echo "Scanning and killing processes on common development ports..."
+  echo "Ports: ${ports[@]}"
+  [[ -n "$use_sudo" ]] && echo "Mode: sudo"
+  [[ -n "$force_mode" ]] && echo "Mode: force (will try to stop launchd services)"
+  echo ""
+
+  local killed=0
+  local failed=0
+  local not_found=0
+  local respawned=0
+
+  for port in "${ports[@]}"; do
+    local pids=$(lsof -ti:$port 2>/dev/null)
+
+    if [ -n "$pids" ]; then
+      for pid in $pids; do
+        # Get process name for better feedback
+        local pname=$(ps -p $pid -o comm= 2>/dev/null | xargs)
+        echo "🔴 Port $port - PID $pid ($pname)"
+
+        # Check if managed by launchd
+        local launchd_service=""
+        if [[ -n "$force_mode" ]]; then
+          launchd_service=$(launchctl list 2>/dev/null | grep -E "^\s*$pid\s" | awk '{print $3}')
+        fi
+
+        if [[ -n "$launchd_service" ]]; then
+          echo "   ⚙ Managed by launchd: $launchd_service"
+          echo "   → Stopping service..."
+          $use_sudo launchctl stop "$launchd_service" 2>/dev/null
+          sleep 0.3
+        fi
+
+        # Kill the process
+        $use_sudo kill -9 $pid 2>/dev/null
+        sleep 0.2
+
+        # Check if process died
+        if ! ps -p $pid > /dev/null 2>&1; then
+          # Check if port is still in use (respawned with new PID)
+          sleep 0.3
+          local new_pid=$(lsof -ti:$port 2>/dev/null | head -1)
+          if [[ -n "$new_pid" && "$new_pid" != "$pid" ]]; then
+            echo "   ⚠ Process respawned as PID $new_pid (launchd managed)"
+            echo "   💡 Use: sudo launchctl unload <plist> to permanently stop"
+            ((respawned++))
+          else
+            echo "   ✓ Killed"
+            ((killed++))
+          fi
+        else
+          echo "   ✗ Failed to kill (may need sudo or is a kernel process)"
+          ((failed++))
+        fi
+      done
+    else
+      # Check for TIME_WAIT sockets (no process but port appears busy)
+      local tw=$(netstat -an 2>/dev/null | grep ":$port " | grep TIME_WAIT | head -1)
+      if [[ -n "$tw" ]]; then
+        echo "⏳ Port $port - TIME_WAIT (will auto-clear in ~60s)"
+      else
+        echo "⚪ Port $port - Free"
+      fi
+      ((not_found++))
+    fi
+  done
+
+  echo ""
+  echo "Summary: Killed $killed, Failed $failed, Respawned $respawned, Free $not_found"
+
+  if [ $failed -gt 0 ] && [[ -z "$use_sudo" ]]; then
+    echo ""
+    echo "💡 Try: killp -s (with sudo)"
+  fi
+
+  if [ $respawned -gt 0 ]; then
+    echo ""
+    echo "💡 For respawning services, find the launchd plist:"
+    echo "   launchctl list | grep <service-name>"
+    echo "   sudo launchctl unload /path/to/service.plist"
+  fi
+}
+
+# Machine-specific additions go in ~/.zshrc.local (not managed by BootMyMac)
+[ -f "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"

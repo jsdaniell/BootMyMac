@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "disableAutoMode": "disable"
+  },
+  "tui": "default",
+  "skipDangerousModePermissionPrompt": true,
+  "skipWorkflowUsageWarning": true,
+  "agentPushNotifEnabled": false,
+  "skipAutoPermissionPrompt": true
+}
